@@ -1,0 +1,137 @@
+========================================
+DRIVER PANEL
+LimoSchedule — Automated Limo Booking System
+========================================
+
+Audit basis: routes/driver.php and every controller/model/view it points to
+(Driver\DashboardController, RideController, StatusController, LocationController,
+EarningsController, ReviewController, NotificationController, plus the Driver model,
+DriverDispatchService, and DriverLocationService).
+
+
+## 1. Driver Dashboard
+
+* [✓] Personalized greeting ("Good morning, James").
+* [✓] "You are Online / Offline" status banner with a one-tap **Go Online / Go
+  Offline** action.
+* [✓] Current/next ride card — shows pickup→drop-off, customer, and fare when a ride is
+  assigned; shows "No Upcoming Ride" when the queue is empty.
+* [✓] Stat tiles: **Today's Trips**, **This Month's Earnings**, **Completed Trips**,
+  **Average Rating**.
+* [✓] Today's Trips list with customer, route, and status.
+* [✓] Unread notification badge on the topbar bell.
+
+## 2. Driver Profile
+
+* [✓] Name, email, phone, address, profile photo.
+* [✓] **License number, passport number, national ID** — stored as identity reference
+  fields.
+* [ ] **Document upload / verification is not implemented** — there is no file upload
+  for a license photo, ID scan, or vehicle registration document anywhere in the
+  codebase, and no "verified" / "pending verification" status field on the driver
+  record. The three ID fields above are plain text entries only.
+* [✓] Password change and language/theme preferences, same pattern as Admin/Customer.
+
+## 3. Driver Availability
+
+* [✓] **Online / Offline toggle** — a single tap, always visible in the driver topbar.
+  Going online/offline **notifies every admin with drivers-view permission** via a real
+  browser push notification.
+* [✓] **Live GPS reporting** — while online, the driver's browser reports its geolocation
+  to the server roughly every 8 seconds (throttled client-side), updating the driver's
+  current lat/lng — this feeds the dispatch/ETA calculations described below.
+* [✓] **is_available** flag — separate from online/offline — automatically flips to
+  "unavailable" the moment a driver starts a ride, and back to "available" the moment
+  they complete it, so a mid-ride driver is correctly excluded from new auto-assignment.
+
+## 4. Assigned Bookings
+
+* [✓] Booking list (assigned to this driver) and a detail view: pickup/drop-off (+
+  stops), customer name/phone, vehicle, date/time, and fare.
+* [ ] There is **no accept/decline step** for a driver — see the workflow below.
+
+## 5. Trip Workflow
+
+The actual, code-confirmed lifecycle a driver can act on is:
+
+    Booking Assigned (by admin, or by auto-assignment — see 04-ADMIN-PANEL-FEATURES.txt)
+        → Driver taps "Start Ride"   → status becomes "In Progress"
+        → Driver taps "Complete Ride" → status becomes "Completed"
+
+Two important, verified specifics:
+
+* **No "accept" or "reject" action exists.** Once an admin (or the auto-assignment
+  policy) assigns a booking to a driver, the driver's only actions are Start and
+  Complete — there is no route or button to decline an assignment.
+* **Starting a ride estimates arrival time via Google's Distance Matrix API**
+  (pickup→drop-off duration), stored as the booking's `estimated_arrival_at`.
+
+## 6. Navigation / Maps
+
+* [✓] **Google Distance Matrix integration** (server-side) powers:
+  - The driver's dispatch/ETA-to-pickup calculation.
+  - The ride-start arrival-time estimate.
+* [✓] **Live GPS position reporting** from the driver's own browser (see above).
+* [ ] **No turn-by-turn navigation or embedded map/directions view was found in the
+  driver panel itself** — the driver panel surfaces distance/ETA numbers, not an
+  interactive map. (A driver would use their phone's own maps app for actual turn-by-
+  turn navigation; this app does not launch or embed one.)
+
+## 7. Earnings
+
+* [✓] Earnings are **calculated live from paid bookings** — `(sum of paid fares) ×
+  (driver's commission rate %)` — for This Month, Last Month, and All-Time.
+* [✓] Per-booking earnings list (paginated), showing fare, vehicle, and customer.
+* [✓] Commission rate is set per-driver by the admin.
+* [ ] **No payout/withdrawal processing exists** — there is no "request payout,"
+  "bank details," or payout-history feature. Earnings here are a calculated statement
+  for the driver's own reference, not a money-movement system.
+
+## 8. Customer Interaction
+
+* [✓] Customer name and phone number are visible on an assigned booking (for a direct
+  call) — a `tel:` link, not in-app messaging.
+* [ ] No in-app chat/messaging between driver and customer was found.
+* [✓] Trip notes field exists on the booking (visible to admin/driver) for special
+  instructions.
+
+## 9. Notifications
+
+* [✓] Full in-app notification center: list, mark-as-read (single/all), delete.
+* [✓] Real **browser push notifications**, individually toggleable by the admin per
+  event: New Booking Assigned, Booking Updated, Booking Cancelled, Pickup Reminder,
+  Customer Update, Payment/Trip Update, Dispatch Update.
+* [✓] A prominent "Enable Notifications" badge sits in the driver topbar on every page
+  (not just buried in Settings), plus a full card under Settings.
+* [✓] Custom admin-uploaded notification sound (subject to the same open-tab/closed-
+  browser limitation described in the Admin and Customer documents).
+
+## 10. Documents / Verification
+
+* [ ] **Not implemented.** As noted under Profile above, license/passport/national-ID
+  are free-text fields only. There is no document upload, no admin document-approval
+  queue, and no verification-status field anywhere in the schema. If document
+  verification is a feature you plan to sell, it needs to be built — it does not exist
+  in the current codebase.
+
+## 11. Complete Driver Feature Checklist
+
+[✓] Live dashboard (today's trips, earnings, completed trips, rating)
+[✓] One-tap online/offline toggle, with admin push notification on change
+[✓] Live GPS location reporting while online
+[✓] Auto-managed availability flag (busy during an active ride)
+[✓] Assigned booking list & detail view
+[ ] Driver accept/decline of an assignment
+[✓] Start Ride / Complete Ride actions (the only two lifecycle actions available)
+[✓] Google Distance Matrix–based ETA calculation
+[ ] Turn-by-turn navigation / embedded live map
+[✓] Commission-based earnings calculation (This Month / Last Month / All-Time)
+[ ] Payout / withdrawal processing
+[✓] Direct customer call link
+[ ] In-app driver↔customer chat
+[✓] In-app notification center
+[✓] Real browser push notifications, per-event admin-configurable
+[✓] Custom notification sound
+[ ] Driver document upload
+[ ] Driver verification workflow/status
+[✓] Profile, password, language, and theme preferences

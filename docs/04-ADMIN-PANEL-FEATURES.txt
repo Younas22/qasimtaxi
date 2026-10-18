@@ -1,0 +1,361 @@
+========================================
+ADMIN PANEL
+LimoSchedule — Automated Limo Booking System
+========================================
+
+Audit basis: routes/admin.php (462 lines, ~35 modules) and every one of its 50+
+controllers, models, and views — including DashboardController, BookingController,
+CustomerController, DriverController, VehicleController/VehicleCategoryController,
+PricingRuleController, PaymentGatewayController, ReportController, PageController/
+PageSectionController, RoleController, SystemToolController, PushNotificationSetting-
+Controller, IntegrationController, and the full config/permissions.php module map.
+
+
+## 1. Admin Dashboard
+
+Centralized Operations Overview — `Admin\DashboardController` computes every figure
+live from the database on each load (no cached/fake demo numbers):
+
+* [✓] Core counts: total Bookings, Vehicles, Drivers, Customers.
+* [✓] **Revenue** — sum of fare amounts across all `payment_status = paid` bookings.
+* [✓] Today's Bookings and Today's Revenue (date-scoped).
+* [✓] **Pending Bookings** and **Unassigned Bookings** (no driver yet) counts, each
+  flagged for quick attention.
+* [✓] **Active Rides** — bookings currently `in_progress`.
+* [✓] **Live Fleet** panel — count of currently-online drivers and how many are mid-ride.
+* [✓] **Browser Push** status card — master enabled/disabled state, per-role enabled
+  state (Admin/Customer/Driver), and total active push subscription count, with a
+  one-click link to Notification Settings.
+* [✓] Recent Bookings list with status/amount at a glance.
+
+## 2. Booking Management
+
+Centralized Booking Management — full lifecycle control from one screen:
+
+* [✓] Searchable, filterable booking list (by status, type, date, driver, customer).
+* [✓] Create a booking manually (admin-entered, e.g. phone/walk-in bookings) — subject
+  to the "Manual Booking" toggle in Booking Settings.
+* [✓] Edit any booking's details.
+* [✓] **Assign / reassign driver and vehicle** per booking.
+* [✓] **Smart dispatch suggestion** — the booking screen can suggest the best driver by
+  live proximity and current ride status (idle at office / idle elsewhere / about to
+  free up from another ride) via `DriverDispatchService::selectBestDriver()`. **This is
+  a suggestion for the admin to confirm, not an automatic assignment** — the admin still
+  clicks to assign.
+* [✓] **Status changes** through the full lifecycle: Pending → Confirmed → Assigned →
+  In Progress → Completed, or Cancelled at any point, each transition triggering the
+  relevant email/push notifications to the affected customer/driver/other admins.
+* [✓] **Cancel booking**, with reason and "who cancelled" tracking.
+* [✓] **Record payment manually** (cash/manual/wallet) — generates a synthetic reference
+  ID for record-keeping when no real Stripe/PayPal transaction exists.
+* [✓] **Process refund** — marks the booking refunded and **automatically credits the
+  fare amount to the customer's wallet** (not reversed to the original payment method).
+* [✓] Full detail view: customer, driver, vehicle, route (+ stops), fare breakdown,
+  payment status, cancellation info.
+
+## 3. Customer Management
+
+* [✓] Customer list, search, create, edit, delete/deactivate.
+* [✓] Full customer profile: contact info, saved addresses, booking history.
+* [✓] **Wallet** — admin can credit or debit a customer's wallet balance with a required
+  reason, fully logged (`CustomerWalletTransaction`, attributed to the acting admin).
+* [✓] **Loyalty points** — same admin-managed credit/debit pattern
+  (`CustomerLoyaltyTransaction`).
+* [✓] View a customer's full booking and payment history from their profile.
+
+## 4. Driver Management
+
+* [✓] Driver list, search, create, edit, delete/deactivate.
+* [✓] Driver profile: contact info, license/passport/national-ID text fields, photo,
+  assigned vehicle, commission rate.
+* [✓] **Live availability visibility** — online/offline and available/busy status,
+  visible to the admin in real time (drivers update this themselves; see
+  03-DRIVER-PANEL-FEATURES.txt).
+* [✓] Driver's booking history and calculated earnings.
+* [ ] **No document upload/verification workflow** — see 03-DRIVER-PANEL-FEATURES.txt;
+  this applies on the admin side too (there is nothing to approve because nothing is
+  uploaded).
+* [✓] Push notification to the driver on new assignment, cancellation, dispatch update,
+  etc. (admin-configurable per event).
+
+## 5. Vehicle/Fleet Management
+
+* [✓] **Vehicle Categories** — create/edit/delete categories (e.g. Sedan, SUV, Van),
+  each with its own description and optional dedicated `PricingRule`.
+* [✓] **Vehicles** — full CRUD: brand, model, year, plate number, seats, luggage
+  capacity, transmission, fuel type, description, primary photo, plus multiple
+  gallery images per vehicle.
+* [✓] Amenity toggles: Wi-Fi, water, charger, baby seat, air conditioning.
+* [✓] Per-vehicle price overrides (base fare, per-km, per-hour, airport price, night
+  charge) in addition to the category-level pricing rule.
+* [✓] Assign a vehicle to a driver.
+* [✓] Active/inactive status per vehicle.
+
+## 6. Services Management
+
+Services are managed as regular CMS pages (see "CMS / Page & Section Builder" below),
+not a separate "services" database table — each of the 6 service pages (Airport
+Transfer, Chauffeur Service, Corporate Transfer, City Rides, Hourly Rides, VIP
+Transport) is edited like any other page: heading, hero image, body copy, and SEO
+fields, all from Pages → [service] → Edit.
+
+## 7. Pricing/Fare Management
+
+Full Fare Rule Engine — see 01-WEBSITE-FEATURES.txt §6 for the complete factor list.
+From the admin side:
+
+* [✓] One **Global Default** pricing rule, plus an optional override rule **per vehicle
+  category** — a vehicle without a category-specific rule falls back to the global one.
+* [✓] Every fare component is independently editable: base fare (+ threshold km),
+  per-km rate, long-distance discounted rate (+ its distance threshold), hourly rate,
+  waiting charge (+ free minutes), night surcharge (+ time window), weekend surcharge
+  (+ which days), toll charge, airport surcharge, service fee, minimum fare, included
+  km/hours/passengers, and extra-passenger charge.
+* [✓] **Coupons** — code, percentage or fixed discount, minimum fare requirement,
+  maximum discount cap, usage limit (with live used-count tracking), expiry date,
+  active toggle.
+* [✓] **Promotions** — scheduled promo banners (title/subtitle/badge/image/link,
+  start/end date, sort order, active toggle) for homepage display.
+
+## 8. Payment Management
+
+* [✓] **Payment Gateways** — Stripe and PayPal, each independently configurable:
+  sandbox and live credential pairs, a sandbox/live mode switch, and an active/inactive
+  toggle per gateway. Whether an online gateway is "ready" (fully configured and
+  enabled) is what determines whether the site requires payment before auto-confirming
+  a booking.
+* [✓] Transaction visibility through the booking list/detail (payment status, gateway,
+  transaction ID) and the Reports module's Revenue report.
+* [✓] **Refund processing** — see Booking Management above (credits to customer wallet).
+* [ ] No standalone "Transactions" ledger page separate from the booking list was
+  found — payment data is viewed through bookings and reports, not a dedicated
+  transactions module.
+
+## 9. Invoice Management
+
+* [✓] Every booking has a real, PDF-downloadable invoice (Dompdf), reachable by admin,
+  by the customer, and by anyone holding the booking's public link.
+* [✓] Invoice branding (logo/dark logo, address, tax label & rate) is pulled live from
+  Settings — no separate invoice template editor, but every input the template reads is
+  admin-controlled.
+
+## 10. Reports & Analytics
+
+Dedicated Reports module (`Admin\ReportController` + `ReportService`) covering:
+
+* [✓] **Revenue report** — with a from/to date range filter.
+* [✓] **Bookings report** — filterable by status and by type.
+* [✓] **Vehicles report**.
+* [✓] **Drivers report**.
+* [✓] **Customers report**.
+* [✓] **Dashboard charts**: monthly revenue trend and booking-growth trend.
+* [✓] **Export to CSV** — real, streamed CSV files.
+* [✓] **Export to Excel** — an HTML table served with an `.xls` extension/mime type
+  (opens correctly in Excel, Numbers, and Google Sheets); this is a dependency-free
+  technique, **not** a true `.xlsx` file and not built with PhpSpreadsheet/Maatwebsite.
+* [✓] **Print / Save-as-PDF** — a print-optimized view for each report, exported to PDF
+  via the browser's own print dialog rather than a server-generated PDF file.
+
+## 11. Notifications
+
+Two distinct, real systems exist — worth telling apart clearly:
+
+* [✓] **Email + in-app (admin panel bell) notifications**, governed by a per-event
+  settings table (`NotificationSetting`): Booking Created, Booking Confirmed, Driver
+  Assigned, Payment Successful, Cancellation — each independently toggled for Email and
+  for "Admin Panel" (in-app) delivery.
+  - [ ] That same table has `sms_enabled` and `push_enabled` columns, but both are
+    **intentionally excluded from actually sending anything** — the code comment in
+    `NotificationSetting::activeChannels()` states no SMS provider is wired up, and
+    real push notifications are handled by the entirely separate system below.
+* [✓] **Real browser push notifications**, governed by a dedicated `PushNotification-
+  Setting` singleton with:
+  - A master **Enable Browser Push Notifications** kill switch.
+  - Three per-role switches: Admin, Customer, Driver.
+  - **8 granular Admin events** (New Booking, Booking Cancelled, Payment Received, New
+    Customer, New Driver, Driver Status Update, Booking Status Update, System Alerts),
+    **7 Driver events**, and **10 Customer events** — every one independently toggled.
+  - **Custom notification sound upload** (mp3/wav/ogg, ≤1MB) — plays in any open browser
+    tab; a fully closed browser falls back to the OS's own default notification sound
+    (a genuine browser limitation, not a bug).
+  - **"Send Test"** button — pushes a real test notification to the admin's own
+    enabled device(s) immediately, for verifying the setup end-to-end.
+  - Visible, one-click "Enable Notifications" entry points on every panel's topbar
+    (Admin/Customer/Driver alike), not just buried in a settings page.
+
+## 12. CMS / Website Management
+
+**[✓] Full page & section builder** — genuinely dynamic, not a handful of hardcoded
+text fields:
+
+* [✓] **Pages**: Home, About, Services (index), Areas (index), FAQ, Contact, the 6
+  service pages, and the 4 legal pages — each independently active/inactive, with its
+  own meta title/description, canonical override, robots index/follow, custom JSON-LD
+  schema, and Open Graph image.
+* [✓] **Sections** — 16 section types (Hero, Booking Widget, Rich Text, Items, Trust
+  Badges, Stats, Process, Fleet, Popular Routes, Areas, Testimonials, Team, FAQ, Vision
+  & Mission, Promotions, Blog, Contact Info, CTA) can be added to any page, reordered
+  (drag-and-drop sort order), toggled active, edited, or removed — see
+  01-WEBSITE-FEATURES.txt §2 for what each renders.
+* [✓] **Blog** — categories, tags, posts (rich body, featured image, excerpt, featured
+  flag, publish status, view-count, full per-post SEO fields).
+* [✓] **FAQs** — managed as Items within an FAQ section, with category/search support
+  on the public side.
+* [✓] **Testimonials** — sourced from approved customer Reviews, not separately
+  authored.
+* [✓] **Footer / social links / contact info** — all sourced from Settings, described
+  fully under "Dynamic Admin-Controlled Features" below.
+* [✓] **Popular Routes** — pickup/drop-off pairs with distance, estimated price, and
+  optional original ("was") price, grouped by admin-managed **Route Types** (e.g. City
+  Routes, Intercity Routes).
+* [✓] **Service Areas** — dedicated pages with their own SEO fields.
+* [✓] **SEO tools**: dynamic sitemap.xml/robots.txt, a **301/302 redirect manager**
+  (checked by the site's 404 fallback before giving up), and a global schema/meta
+  defaults set in Settings.
+* [✓] **Image dimension handling** — service-page hero uploads are automatically
+  downscaled server-side (via GD) to fit the banner's display box, rather than
+  rejecting an admin's normal-sized photo outright.
+
+## 13. General Settings
+
+Every field below is a real, live-read database column an admin can change with no code
+deployment — see "DYNAMIC ADMIN-CONTROLLED FEATURES" at the end of this document for the
+consolidated list. Organized into: Company/Branding, Contact, Business Info (hours,
+timezone, default country, date format, tax), Theme (5 colors + dark/light default), and
+full SEO defaults (meta template, robots, OG image, Search Console verification,
+Analytics ID) and social links (Facebook/Instagram/Twitter/LinkedIn/YouTube).
+
+## 14. Language Management
+
+* [✓] Full CRUD: name, native name, ISO code, flag, **text direction (LTR/RTL)**,
+  active/inactive, and a single default-language flag.
+* [✓] **Database-backed translation strings**, editable from the admin panel
+  (`TranslationController` + `DatabaseTranslationLoader`) — not limited to editing
+  static `.php`/`.json` language files on the server.
+
+## 15. Currency Management
+
+* [✓] Full CRUD: name, code, symbol, **manually-entered exchange rate**, active/inactive,
+  default flag.
+* [ ] **No live exchange-rate API integration** — rates are set and maintained by the
+  admin, not fetched automatically from any currency service.
+
+## 16. Roles & Permissions
+
+* [✓] **Fully custom-built RBAC** (no third-party package) — 20 permission modules
+  (Dashboard, Reports, Bookings, Pricing, Payments, Vehicles, Drivers, Customers,
+  Content, Blog, Settings, Roles & Permissions, Languages, Currencies, Locations,
+  Popular Routes, Service Areas, Reviews, Contact Messages, Support Tickets, Coupons,
+  Promotions, System Tools) × 5 actions (View, Create, Edit, Delete, Export) — up to
+  100 discrete permissions.
+* [✓] Create/edit/delete custom roles, each with its own permission set.
+* [✓] **System roles** (e.g. Super Admin) are flagged `is_system` and protected from
+  deletion.
+* [✓] Multiple admin users, each assigned a role; every protected admin route/UI action
+  checks the `EnsurePermission` middleware.
+* [✓] **Activity Log** — every significant admin action (e.g. an integration key change)
+  is recorded with the acting admin, IP address, and user agent, viewable under System
+  Tools.
+
+## 17. System Tools
+
+A genuinely extensive toolkit, not a placeholder page:
+
+* [✓] **Maintenance mode** toggle.
+* [✓] **Cache clearing** (application cache).
+* [✓] **Database backup**: create, list, download, delete — a custom SQL-dump exporter
+  (writes tables directly via chunked queries; does not shell out to `mysqldump`, so it
+  works on hosts that don't expose that binary).
+* [✓] **Database restore**: upload a backup file and restore from it.
+* [!] **Drop All Tables** — a full destructive database reset tool exists in the admin
+  UI. Powerful and should be surfaced to buyers with an appropriate warning; it is real
+  and will destroy all data if used.
+* [✓] **Run Migrations** from the admin UI (no server SSH access required for schema
+  updates).
+* [✓] **Composer Update** from the admin UI.
+* [✓] **Activity Logs** viewer.
+* [✓] **Error Logs** viewer, with a clear-log action.
+* [✓] **Clear Failed Jobs** (queue maintenance).
+* [✓] **Full `.env` editor** — edit environment variables directly from the browser,
+  with automatic timestamped backups before every save and one-click restore of a prior
+  version.
+* [✓] **Integrations** page — Google Maps API key entry, live "Test Connection" check
+  against Google's Geocoding API, masked display of the currently-saved key, and
+  activity-log entry on change.
+* [✓] **System health checks** (`SystemHealthService`) surfaced on the System Tools
+  screen.
+
+## 18. Complete Admin Feature Checklist
+
+[✓] Live operational dashboard (bookings/revenue/fleet/push status)
+[✓] Full booking lifecycle management incl. smart-dispatch suggestion
+[✓] Manual booking creation, editing, cancellation, refund-to-wallet
+[✓] Customer management incl. wallet & loyalty point ledgers
+[✓] Driver management incl. live availability visibility
+[ ] Driver document upload/verification
+[✓] Vehicle & vehicle-category management with amenities and image galleries
+[✓] Two-tier pricing engine (global default + per-category overrides)
+[✓] Coupons and scheduled promotions
+[✓] Stripe & PayPal gateway configuration (sandbox/live)
+[✓] Refund processing (auto-credits customer wallet)
+[✓] PDF invoicing, branded from Settings
+[✓] 5-area reporting suite with CSV/Excel export and print-to-PDF
+[✓] Real browser push notifications: master + per-role + granular per-event, custom
+    sound, live test-send
+[~] Legacy per-event Email/Admin-panel notification toggles (SMS/push columns present
+    but intentionally inert)
+[✓] Full page & 16-type section CMS builder
+[✓] Blog with categories/tags and per-post SEO
+[✓] Popular Routes with route types and discount pricing
+[✓] Service area pages
+[✓] Sitemap, robots.txt, redirect manager, per-page schema/meta
+[✓] Company branding, contact info, business hours, tax, and theme colors — all
+    dynamic from Settings
+[✓] Multi-language management with DB-backed translations and RTL support
+[✓] Multi-currency management (manual exchange rates)
+[✓] Custom role-based access control (20 modules × 5 actions)
+[✓] Admin activity log
+[✓] Database backup/restore, migrations, composer update, cache/log/queue tools — all
+    from the browser
+[!] "Drop All Tables" destructive reset tool (real, powerful — flag for buyers)
+[✓] In-browser `.env` editor with automatic backup/restore
+[✓] Google Maps API key management with live connection test
+[ ] Standalone transactions ledger (payment data lives in bookings/reports instead)
+[ ] SMS integration
+[ ] Live currency-rate API
+
+
+## DYNAMIC ADMIN-CONTROLLED FEATURES
+
+Everything below can be changed by an administrator with zero code changes or
+redeployment — confirmed by tracing each field to a live `Setting`/`BookingSetting`/
+`PushNotificationSetting` read at render time:
+
+* Company name, business type, tagline, meta title
+* Logo (light + dark variants), invoice logo choice, favicon
+* Address, phone, email, WhatsApp number & message template, business hours
+* Google Maps embed URL (for a location map), office coordinates
+* Timezone, default country, date format
+* Tax label and tax rate
+* Theme mode (dark/light default) and 5 brand colors (primary/secondary/accent/text/
+  background)
+* Full SEO defaults: meta description/keywords, title template, robots index/follow
+  defaults, custom `robots.txt` body, Open Graph image, Google Search Console
+  verification tag, Google Analytics ID
+* Social links: Facebook, Instagram, Twitter/X, LinkedIn, YouTube
+* Every homepage/page section's content, order, and active state
+* All 6 service pages' copy, hero image, and SEO fields
+* FAQs, blog posts/categories/tags, testimonials (via review approval), popular routes,
+  route types, service areas, promotions
+* Vehicles, vehicle categories, amenities, and every pricing-rule field
+* Coupons
+* Payment gateway credentials and sandbox/live mode
+* Booking Settings: manual booking on/off, website booking on/off, guest booking on/off,
+  auto-confirmation on/off, **driver auto-assignment on/off** (random among
+  online+available drivers — not proximity-based), voice search toggle (UI-only,
+  underlying feature is a placeholder)
+* Languages, translations, and currencies (incl. exchange rates)
+* Roles and permissions, and which admins hold which role
+* Every push-notification master/role/event toggle, plus the notification sound file
+* Google Maps API key (Integrations)
+* Redirects (301/302 rules)

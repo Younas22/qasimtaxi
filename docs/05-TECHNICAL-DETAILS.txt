@@ -1,0 +1,364 @@
+========================================
+TECHNICAL DETAILS
+LimoSchedule — Automated Limo Booking System
+========================================
+
+Audience: developers and technical buyers. Every claim below was verified against the
+actual source (composer.json/package.json, config/*.php, bootstrap/app.php, and the
+relevant Service/Controller/Model classes) rather than assumed from the framework.
+
+
+## 1. Technology Stack
+
+* **Language:** PHP ^8.2 (confirmed running: PHP 8.2.12)
+* **Framework:** Laravel ^12.0 (confirmed running: 12.62.0)
+* **Frontend:** Server-rendered Blade templates + Alpine.js 3.x (loaded via CDN
+  `<script>` tag, not an npm dependency) for interactivity. No React, Vue, or Inertia.
+* **CSS:** Tailwind CSS ^4.0, compiled via the `@tailwindcss/vite` plugin — the site
+  ships a **pre-built static CSS/JS bundle** (`public/build/`); there is no live Vite
+  dev server or hot-reload assumption in production.
+* **Build tool:** Vite ^7.0 (`laravel-vite-plugin` ^2.0).
+* **Database:** MySQL (confirmed via the running `.env`: `DB_CONNECTION=mysql`) —
+  schema is 100% Laravel migrations (109 migration files), no raw SQL dump.
+* **PDF generation:** `barryvdh/laravel-dompdf` ^3.1 (booking invoices).
+* **Payments:** `stripe/stripe-php` ^21.3, plus PayPal via direct REST calls (no PayPal
+  SDK package — a hand-rolled `PayPalPaymentService`).
+* **Web Push:** `minishlink/web-push` ^11.0 (VAPID-based browser push, no Firebase/
+  OneSignal/Pusher).
+* **JS dependencies (npm):** only build tooling (`vite`, `tailwindcss`, `axios`,
+  `concurrently`, `laravel-vite-plugin`) — no runtime JS framework is npm-installed.
+
+## 2. Architecture
+
+* **Pattern:** Classic Laravel MVC, no Repository layer, no CQRS — controllers call
+  purpose-built **Service classes** (`app/Services/`) for anything non-trivial:
+  `BookingCreationService`, `BookingFareCalculator`, `DriverDispatchService`,
+  `DriverLocationService`, `GoogleMapsService`, `OfficeLocationService`,
+  `PushNotificationService`, `ReportService` / `ReportExportService`, `BackupService`,
+  `EnvFileService`, `SystemHealthService`, `SchemaBuilder`,
+  `WhatsAppBookingLinkGenerator`, and `Payments\StripePaymentService` /
+  `Payments\PayPalPaymentService`.
+* **Three separate, unrelated "user" models** — `Admin`, `Customer`, `Driver` — each
+  with its own Eloquent model, its own auth guard, its own login/password-reset flow,
+  and its own `push_subscriptions`/notification relationships via a shared
+  `HasPushSubscriptions` trait and Laravel's polymorphic relations. There is **no
+  unified `users` table** driving all three (the default Laravel `users` table/`User`
+  model/`web` guard exist from the framework skeleton but are not the app's real user
+  base).
+* **No REST/JSON API layer** — there is no `routes/api.php` registered in
+  `bootstrap/app.php`. A handful of small JSON endpoints exist inside the normal web
+  routes for the site's own AJAX use (push subscribe/status, live fare quoting, coupon
+  validation, live dispatch/ETA polling) — these are **internal AJAX endpoints for this
+  application's own frontend**, not a documented, versioned, or partner-facing API.
+* **Jobs/Queues:** one queued job, `SendPushNotificationJob`. Queue connection is
+  currently `sync` (runs inline, no worker required) but `database` queue tables/config
+  are present and supported if you want to move push sends off the request cycle.
+* **Scheduled tasks/cron:** **none implemented.** `routes/console.php` only contains
+  Laravel's default `inspire` command; `app/Console/Commands/` has no custom commands.
+  If you need scheduled reminders, cleanup jobs, etc., they are not present today.
+* **Notifications:** built on Laravel's native Notification system (`mail` and
+  `database` channels) plus a custom `WebPushChannel` registered by class-name
+  resolution (not `Notification::extend()`) for the real push system.
+* **Caching:** `Cache::rememberForever()` around every singleton settings row
+  (`Setting`, `BookingSetting`, `PushNotificationSetting`, `NotificationSetting`,
+  active languages/currencies), invalidated on save via model `booted()` hooks — so an
+  admin's settings change is reflected immediately, no manual cache-clear needed for
+  those. Google Maps distance/geocode responses are also cached (1 hour / 1 day
+  respectively) to control API cost.
+
+## 3. Database
+
+* **Engine:** MySQL/MariaDB (via Laravel's `mysql` driver).
+* **Migrations:** 109 files — an initial `create_*` migration per table plus a long,
+  honestly-named series of additive `add_*_to_*_table` migrations as features grew
+  (nothing was found to be a hidden/undocumented schema change).
+* **Key entities and relationships:**
+  - `Booking` — the central table; belongs to `Customer`, `Driver`, `Vehicle`, `Coupon`
+    (all nullable except customer); holds pickup/drop-off/stops (as JSON) for both the
+    outbound and (for round trips) return leg, full fare breakdown (JSON), payment
+    state, cancellation state, and dispatch snapshot fields.
+  - `PricingRule` — one global row (`vehicle_category_id = null`) plus optional
+    per-`VehicleCategory` overrides.
+  - `Vehicle` belongsTo `VehicleCategory`, hasMany `VehicleImage`; belongsToMany
+    `Customer` via `customer_favorites`.
+  - `Admin`/`Customer`/`Driver` each `morphMany` → `PushSubscription` (polymorphic;
+    `subscribable_type`/`subscribable_id`), and each `belongsTo`/`hasMany` their own
+    notification, session, and (customer-only) wallet/loyalty transaction tables.
+  - `Role` belongsToMany `Permission` via `role_permission`; `Admin` belongsToMany
+    `Role` via `admin_role`.
+  - `Page` hasMany `PageSection` (ordered, typed, polymorphic-by-`type` content blocks).
+  - `Location` hierarchy: `Country` → `State` → `City`, plus standalone `Airport`,
+    `TrainStation`, and `PickupPoint` tables for location-aware booking fields.
+  - `Language`, `Currency`, `Translation` — independent, cache-backed reference tables.
+* **Indexing note:** `push_subscriptions.endpoint_hash` is a SHA-256 hash of the actual
+  push endpoint URL (endpoints run 300+ characters, too long to index directly under
+  MySQL's key-length limits) and carries a **global unique constraint** — one browser/
+  device endpoint can only ever be linked to one Admin/Customer/Driver row at a time;
+  the subscribe endpoint reassigns ownership rather than erroring when a shared device
+  re-subscribes under a different account.
+
+## 4. Authentication & Authorization
+
+* **Sessions, not tokens** — all four guards (`admin`, `customer`, `driver`, and the
+  unused default `web`) use Laravel's session driver. `SESSION_DRIVER=database` in the
+  running environment.
+* **Middleware aliases** (see `bootstrap/app.php`): `admin.auth`, `admin.guest`,
+  `customer.auth`, `customer.guest`, `driver.auth`, `driver.guest`, and `permission`
+  (the RBAC gate, `App\Http\Middleware\Admin\EnsurePermission`).
+* **Passwords:** Laravel's default bcrypt hashing (`'password' => 'hashed'` cast on all
+  three user models); `BCRYPT_ROUNDS` configurable via `.env`.
+* **Password reset:** independent, email-token-based flow per guard (Admin, Customer,
+  Driver each have their own `ForgotPasswordController`/`ResetPasswordController` pair
+  and their own `ResetPassword` notification class).
+* **Email verification:** implemented for `Customer` (`MustVerifyEmail`), via signed,
+  time-limited verification URLs — **not currently enforced** (no route uses the
+  `verified` middleware), so it does not gate access today.
+* **RBAC:** hand-built (no Spatie/other package) — `config/permissions.php` defines 20
+  modules × 5 actions; `Role`/`Permission`/`role_permission` implement a standard
+  many-to-many; `EnsurePermission` checks the logged-in admin's role's permissions per
+  route.
+* **Locale/currency resolution:** `SetLocale`/`SetCurrency` middleware run on every web
+  request (explicitly slotted into Laravel's global middleware priority list, right
+  after session start), so translated strings/currency formatting are correct even on
+  error pages.
+
+## 5. APIs
+
+No public/partner API exists. Internal AJAX endpoints used by the app's own frontend
+(all inside the normal `web` middleware group, CSRF-protected, several throttled):
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/booking/quote` | POST | Live fare estimate while filling the booking form (throttled 30/min) |
+| `/coupon/apply` | POST | Validate & preview a coupon's discount (throttled 30/min) |
+| `/push/subscribe` | POST | Register a browser's push subscription (throttled 20/min) |
+| `/push/unsubscribe` | POST | Remove a browser's push subscription (throttled 20/min) |
+| `/push/status` | GET | Confirm whether a given endpoint is registered to the current account (throttled 20/min) |
+| `/account/bookings/{id}/dispatch` | GET | Live driver distance/ETA to pickup (customer, authenticated) |
+| `/locale/{code}`, `/currency/{code}`, `/theme/toggle` | POST | Preference switches |
+| `/driver/location` | POST | Driver's live GPS ping (authenticated, driver only) |
+
+## 6. Third-Party Integrations
+
+**Google Maps**
+Purpose: Places Autocomplete (booking form), Distance Matrix (fare distance & driver
+ETA), Geocoding (resolving a free-text office address to coordinates).
+Integration Method: server-side HTTP calls from `GoogleMapsService` (Distance Matrix,
+Geocoding) + a browser-side Maps JS/Places script tag using the same key (referrer-
+restricted in Google Cloud Console).
+Configuration Location: Admin → System Tools → Integrations (stored directly in
+`.env` as `GOOGLE_MAPS_API_KEY`, with a live "Test Connection" check).
+Required Credentials: one Google Cloud API key with Geocoding, Distance Matrix, Maps
+JavaScript, and Places APIs enabled.
+
+**Stripe**
+Purpose: Online card payment for bookings.
+Integration Method: `stripe/stripe-php` SDK, wrapped by `Payments\StripePaymentService`;
+Checkout/redirect-style flow with a return URL handled by `BookingPaymentController`.
+Configuration Location: Admin → Settings → Payment Gateways → Stripe.
+Required Credentials: Publishable Key + Secret Key (separate sandbox/live pairs).
+
+**PayPal**
+Purpose: Online payment alternative to Stripe.
+Integration Method: direct REST API calls (no official SDK dependency) via
+`Payments\PayPalPaymentService`.
+Configuration Location: Admin → Settings → Payment Gateways → PayPal.
+Required Credentials: Client ID + Client Secret (separate sandbox/live pairs).
+
+**Web Push (VAPID)**
+Purpose: real, native browser push notifications — no third-party push service.
+Integration Method: `minishlink/web-push`, signing directly to each browser vendor's own
+push service (Chrome/Edge → FCM endpoint, Firefox → Mozilla's, etc.) using self-hosted
+VAPID keys.
+Configuration Location: `.env` (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_SUBJECT`) — generated once during setup, not admin-editable through the UI.
+Required Credentials: a VAPID key pair (generate with `web-push` tooling or any VAPID
+key generator) and a contact `mailto:`/URL subject.
+
+**WhatsApp**
+Purpose: click-to-chat hand-off from the booking form and a floating site-wide button.
+Integration Method: plain `wa.me` deep links with a URL-encoded, admin-defined message
+template — **not** the WhatsApp Business Platform/Cloud API. No delivery receipts,
+message history, or automated replies exist.
+Configuration Location: Admin → Booking Settings (number + message template).
+Required Credentials: none (just a phone number).
+
+**Not integrated (confirmed absent):** SMS/OTP provider (Twilio, Vonage, etc. — no
+package, no code path), social login providers, any live currency-exchange-rate API,
+any mapping provider other than Google, and any AI/ML service.
+
+## 7. Maps & Location
+
+Covered above under Google Maps. Additional notes:
+* `OfficeLocationService` geocodes the business's configured address once and persists
+  the coordinates, used as the dispatch origin for an idle driver with no recent GPS
+  ping.
+* `DriverDispatchService` computes three dispatch scenarios (idle at office / idle
+  elsewhere with a fresh GPS ping / mid-ride, dispatching after drop-off) and caches a
+  computed distance/ETA snapshot for 60 seconds (or until the driver has moved >200m)
+  to avoid hammering the Google API on every poll.
+* Driver location is a **single current lat/lng point** (`current_lat`, `current_lng`,
+  `location_updated_at` on the `Driver` row) — there is no location-history table and
+  no live-updating map view was found on either the customer or driver side; distance/
+  ETA are surfaced as numbers.
+
+## 8. Payment Gateway (Architecture)
+
+* Both gateways are modeled as `PaymentGateway` rows with `code` (`stripe`/`paypal`),
+  sandbox/live credential pairs, a mode switch, and an `is_active` flag; `isReady()`
+  determines whether a gateway is actually usable.
+* `BookingCreationService::paymentRequired()` — if **any** enabled gateway `isReady()`,
+  a new booking is held at `pending` (not auto-confirmed, not auto-assigned) until it is
+  actually paid; once paid, `confirmAfterPayment()` re-applies the auto-confirm/auto-
+  assign policies.
+* A booking can be paid at creation time or later via a **public, no-login payment
+  link** keyed by booking number (`booking.pay`), with dedicated return/cancel routes
+  per gateway.
+* Refunds are handled as store credit: `processRefund()` marks the booking refunded and
+  calls `Customer::creditWallet()` — there is no automatic reversal call to Stripe's or
+  PayPal's refund API in the audited code.
+
+## 9. Email / SMS / Notifications
+
+* **Email:** standard Laravel `Mail`/`Notification` "mail" channel; SMTP settings are
+  admin-configurable via a dedicated `EmailSetting` model/controller (not limited to
+  raw `.env` editing, though `.env` mail vars also exist as a fallback/default). Current
+  running config uses `MAIL_MAILER=log` (development mode — mail is written to the log,
+  not actually sent) until real SMTP credentials are entered.
+* **SMS:** **not implemented.** A `sms_enabled` column exists on the legacy
+  `NotificationSetting` table but is explicitly excluded from the channel list in code
+  — no SMS gateway package or HTTP integration exists anywhere in the app.
+* **Push:** see "Web Push (VAPID)" above and 04-ADMIN-PANEL-FEATURES.txt §11 for the
+  full feature set — this is the one channel that is fully real and independently
+  built, distinct from Laravel's notification "channels" concept for mail/database.
+
+## 10. File Storage
+
+* **Disk:** files are written **directly to `public/uploads/{category}/...`** via
+  `UploadedFile::move()` calls in each admin controller (Settings logos, page-section
+  images, vehicle photos, blog images, push-notification sound files, database
+  backups). This bypasses Laravel's `Storage` facade/`public` disk entirely.
+* **Consequence for installation:** `php artisan storage:link` is **not required** —
+  there is no symlink dependency for any upload in this codebase (confirmed: not part
+  of the composer install scripts, and no `Storage::disk('public')` calls were found).
+* **Validation:** uploads are validated per-field (`image`, `max:<size>`, mimetype
+  lists for video/sound) via standard Laravel validation rules; service-page hero
+  images are additionally auto-resized (GD) after upload rather than rejected for being
+  oversized.
+* **No cloud storage (S3, etc.) is wired up** — `AWS_*` env vars exist only as the
+  unused Laravel skeleton default.
+
+## 11. Security
+
+Verified, implemented protections:
+* **CSRF** — Laravel's default CSRF middleware on the `web` group; all AJAX endpoints
+  send the token explicitly.
+* **Authentication** — per-guard session auth for all three real user types (see §4).
+* **Authorization** — the custom RBAC/`EnsurePermission` middleware on admin routes.
+* **Mass-assignment protection** — every model uses an explicit `$fillable` array (no
+  `$guarded = []` blanket-allow patterns found).
+* **Validation** — every controller that accepts input calls Laravel's `validate()`
+  with explicit rule sets (confirmed across booking, page/section, and settings
+  controllers).
+* **SQL injection protection** — Eloquent/query builder parameter binding throughout;
+  the one place raw table names are interpolated (`BackupService`'s SQL dump writer)
+  reads table names from `information_schema`, not user input.
+* **XSS protection** — Blade's default `{{ }}` output escaping; the few `{!! !!}`
+  raw-output usages found are for admin-authored rich-text/schema fields (an accepted,
+  documented trust boundary for an admin-only editor, not user-submitted content).
+* **Rate limiting** — `throttle` middleware applied to quote, coupon-apply, and all
+  push endpoints.
+* **Polymorphic subscription integrity** — see §3's `endpoint_hash` note; subscribing
+  reassigns rather than crashing or silently mis-attributing a shared device.
+* **Password hashing** — bcrypt via Laravel's `hashed` cast.
+* [ ] No dedicated 2FA implementation was found for any guard.
+* [ ] No explicit file-upload virus/malware scanning was found (standard MIME/extension
+  validation only).
+
+## 12. Performance
+
+* **Caching** of every settings singleton and active-language/currency lookups
+  (`Cache::rememberForever`, invalidated on save).
+* **Caching** of Google Maps Distance Matrix (1 hour) and Geocoding (1 day) responses.
+* **Pagination** used consistently across admin and panel list views (bookings,
+  customers, drivers, invoices, wallet transactions, support tickets, etc.).
+* **Pre-built frontend assets** — Tailwind/Vite output is compiled ahead of time
+  (`npm run build`); there is no runtime CSS/JS compilation in production, and no
+  client-side framework hydration cost.
+* **Dispatch/ETA snapshot caching** (60s / 200m staleness window) to limit Google API
+  calls during active-trip polling.
+* [ ] No Redis/Memcached usage was found in the live configuration (cache/session/queue
+  all run on the `database` driver) — supported by config, but not the default setup.
+
+## 13. Cron / Scheduler
+
+**None implemented.** See §2. If you intend to sell this with "automated reminders,"
+"scheduled reports," or similar cron-dependent messaging, that functionality does not
+exist yet and would need to be built.
+
+## 14. Environment Configuration
+
+Key `.env` variable **names** actually read by this codebase (values withheld):
+
+```
+APP_NAME, APP_ENV, APP_KEY, APP_DEBUG, APP_URL, APP_LOCALE, APP_FALLBACK_LOCALE
+DB_CONNECTION, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD
+SESSION_DRIVER, SESSION_LIFETIME, CACHE_STORE, QUEUE_CONNECTION
+MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS, MAIL_FROM_NAME
+GOOGLE_MAPS_API_KEY
+VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
+AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION, AWS_BUCKET   (unused skeleton defaults — no S3 code path)
+```
+Note: Stripe/PayPal credentials, SMTP-vs-log mail choice for production, and most
+business settings are **database-backed** (editable in-app), not `.env`-only — the
+`.env` file mainly carries infrastructure-level config (DB, session, the Maps key, and
+VAPID keys) plus whatever an admin edits through the in-app `.env` editor.
+
+## 15. Folder Structure (high level)
+
+```
+app/
+  Console/            (empty — no custom Artisan commands)
+  Http/Controllers/    Admin/, Customer/, Driver/, Location/, Auth/, and root-level
+                        public-site controllers (~100 controllers total)
+  Http/Middleware/     Admin/, Customer/, Driver/ guards + SetLocale/SetCurrency
+  Jobs/                SendPushNotificationJob (the only queued job)
+  Models/              51 Eloquent models
+  Notifications/       Per-event, per-role notification classes (mail + database + push)
+  Services/            17 service classes (business logic, kept out of controllers)
+  Channels/            WebPushChannel (custom Notification channel)
+resources/
+  views/               Blade templates, mirroring the admin/customer/driver/public split
+  js/app.js            Shared Alpine data components (incl. the push-notification toggle)
+  css/app.css          Tailwind entry point
+routes/
+  web.php, admin.php, customer.php, driver.php, console.php
+database/
+  migrations/          109 files
+  seeders/              AdminSeeder, ClientDemoSeeder, TranslationSeeder, etc.
+public/
+  uploads/              All user-uploaded files, direct (no storage symlink)
+  build/                Pre-compiled Vite output
+  sw.js                 Push-notification service worker
+```
+
+## 16. Browser / Server Requirements
+
+* **PHP:** 8.2 or newer, with the `gd` extension (used for server-side image resizing)
+  and standard Laravel extensions (`mbstring`, `openssl`, `pdo_mysql`, `tokenizer`,
+  `xml`, `ctype`, `json`, `bcmath`, `fileinfo`).
+* **Database:** MySQL/MariaDB.
+* **Web server:** Apache or Nginx, document root pointed at `/public`.
+* **Composer** 2.x, **Node.js**/**npm** (for the one-time asset build only — not needed
+  at runtime once `public/build/` is committed/deployed).
+* **Browser support:** any evergreen Chrome/Edge/Firefox/Safari for the site itself;
+  **browser push notifications specifically require a Chromium-based browser or Firefox
+  with the Push API/Service Worker support** (Safari's support is more limited) and,
+  outside `localhost`, **HTTPS is mandatory** — Service Workers and the Push API refuse
+  to register over plain HTTP.
+* [!] **Windows/OpenSSL note (development environments only):** generating/using EC
+  keys for VAPID JWT signing can fail on Windows PHP builds with a
+  `configuration file routines::no such file` OpenSSL error unless `OPENSSL_CONF`
+  points at a real `openssl.cnf` — handled in this codebase via an explicit
+  `putenv('OPENSSL_CONF=...')` in `AppServiceProvider::boot()`. Not an issue on typical
+  Linux production hosts.

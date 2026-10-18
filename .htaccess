@@ -1,0 +1,20 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Work out the URL prefix this folder is served under ("/" on live,
+    # "/qasimtaxi/" or similar locally) so the same file works everywhere.
+    RewriteCond $0#%{REQUEST_URI} ^([^#]*)#(.*)\1$
+    RewriteRule ^.*$ - [E=APP_BASE:%2]
+
+    # Serve real static files straight from public/ (built Vite assets,
+    # uploads, favicon, robots.txt, etc.) without going through PHP.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{DOCUMENT_ROOT}%{ENV:APP_BASE}public/$1 -f
+    RewriteRule ^(.*)$ public/$1 [L]
+
+    # Everything else goes through the front controller at the project
+    # root (index.php, next to this file).
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>

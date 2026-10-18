@@ -1,0 +1,175 @@
+========================================
+CUSTOMER PANEL
+LimoSchedule — Automated Limo Booking System
+========================================
+
+Audit basis: routes/customer.php and every controller/model/view it points to
+(Customer\DashboardController, BookingController, DispatchController, WalletController,
+FavoriteController, AddressController, ReviewController, SecurityController,
+SupportController, InvoiceController, PaymentMethodController, NotificationController,
+plus the Customer model itself).
+
+
+## 1. Customer Dashboard
+
+`Customer\DashboardController` renders a real overview, not placeholder cards:
+
+* [✓] Greeting with the customer's first name and time-of-day.
+* [✓] **Next ride** summary — pickup/drop-off, date/time, assigned driver (or "Not yet
+  assigned"), vehicle, and fare, for the soonest upcoming booking.
+* [✓] Stat tiles: **Total Spent**, **Completed Trips**, **Upcoming Trips**, **Total
+  Bookings**.
+* [✓] **Recent Trips** list.
+* [✓] Quick-action tiles: Book a Ride, My Trips, Addresses, Favorites, Wallet.
+* [✓] A notification bell (see Notifications, below) showing unread count.
+
+## 2. Customer Profile
+
+* [✓] Name, email, phone, profile photo.
+* [✓] Password change (separate "Security" area — see below).
+* [✓] **Saved Addresses** — labeled addresses (e.g. "Home", "Work") with Google Place
+  data (lat/lng/place ID) and a one-click "set as default," fully CRUD-managed by the
+  customer.
+* [✓] Preferences: language, currency, and light/dark theme, each saved per-account.
+
+## 3. Booking Management
+
+* [✓] Create a new booking (same booking widget as the public site, pre-filled with the
+  logged-in customer's details).
+* [✓] Full booking list, plus dedicated **Upcoming**, **Completed**, and **Cancelled**
+  filtered views.
+* [✓] Booking detail page: pickup/drop-off (+ stops), date/time, vehicle, driver, fare
+  breakdown, payment status.
+* [✓] **Cancel booking** — with a preset reason picker (change of plans, booked by
+  mistake, found another ride, price concerns, other) or free text.
+* [✓] Booking status shown throughout: Pending → Confirmed → Assigned → In Progress →
+  Completed (or Cancelled at any point before completion).
+* [✓] Payment status shown per booking: Pending, Paid, Refunded.
+* [✓] Shareable payment link — an unpaid booking can be paid by anyone holding the link
+  (e.g. forwarded to a friend or parent), no login required for that link.
+
+## 4. Trip Management
+
+* [✓] **Live dispatch info** — the booking detail page polls a JSON endpoint
+  (`bookings.dispatch`) that returns the assigned driver's current distance and ETA to
+  the pickup point, computed from the driver's live GPS position (or their current
+  in-progress ride's drop-off point, or the office, whichever applies) via the Google
+  Distance Matrix API. **This is a numeric distance/ETA readout, not an animated map
+  with a moving driver marker** — no live map view was found on this page.
+* [✓] Driver info shown once assigned: name, photo, phone.
+* [✓] Trip status progression, as above.
+
+## 5. Payments
+
+* [✓] **Online payment** via Stripe or PayPal at the point of booking (or later, via the
+  shareable payment link) — both are real, working gateway integrations
+  (`StripePaymentService`, `PayPalPaymentService`), not stubs.
+* [✓] Payment is required before a booking is confirmed/dispatched whenever an online
+  gateway is actively configured; otherwise bookings can proceed unpaid (cash/manual).
+* [~] **"Payment Methods" page** — despite its name, this is a **payment/transaction
+  history list** (searchable by booking number or transaction ID), not a saved-card
+  wallet. There is no "add card" or stored-card management anywhere in the codebase.
+* [✓] **Wallet** — every customer has a wallet balance:
+  - [✓] Self-service **recharge** with quick amounts ($25/$50/$100/$200) or a custom
+    amount between a configured min/max.
+  - [!] **Technical note:** the recharge endpoint credits the wallet directly from the
+    submitted amount — it does **not** currently route through Stripe/PayPal to actually
+    charge the customer first. As built, this step needs a real payment gateway wired in
+    before "wallet recharge" can be trusted as a genuine payment feature.
+  - [✓] Admin can also manually credit/debit a customer's wallet with a note (e.g.
+    goodwill credit), fully logged.
+  - [✓] **Refunds are automatically credited to the customer's wallet** (not reversed to
+    the original card/PayPal account) when an admin processes a refund.
+  - [ ] Using wallet balance to actually pay for a new booking during checkout was not
+    found — the wallet is a standalone balance today, not yet wired into the booking
+    payment step itself.
+* [✓] **Loyalty points** — a points balance and full transaction history, adjustable by
+  an admin with a reason note. [ ] Points are **not** currently auto-earned per
+  completed booking, and **not** currently redeemable for a discount inside the booking
+  flow — today it is an admin-managed ledger the customer can view, not an automatic
+  earn-and-burn loyalty program.
+* [✓] **Coupons** — applied at booking time (see 01-WEBSITE-FEATURES.txt).
+
+## 6. Invoices
+
+* [✓] Invoice list — every paid/confirmed/assigned booking, from Account → Invoices.
+* [✓] Invoice view page and a genuine **PDF download** (Dompdf-rendered, with the
+  company's invoice logo, address, and tax settings pulled live from Settings).
+* [✓] The same invoice is reachable without login via the booking's public link, so it
+  can be forwarded to a third party (e.g. an employer for expense reporting).
+
+## 7. Notifications
+
+* [✓] **In-app notification center** — list, mark-one-as-read, mark-all-as-read, and
+  delete, backed by Laravel's database notifications channel.
+* [✓] **Real browser push notifications** — a dedicated "Enable Notifications" control
+  is available both as a compact topbar badge (visible on every page, no digging into
+  Settings required) and a full explanatory card under Account → Notifications. Once
+  enabled on a device, the customer receives real OS-level browser push alerts for
+  booking created/confirmed, driver assigned, trip started/completed, cancellation,
+  payment received, and invoice-ready events — each individually toggleable by the admin
+  (see 04-ADMIN-PANEL-FEATURES.txt).
+* [✓] Notification sound — plays the admin's uploaded custom sound in any open tab; the
+  OS's own default sound plays when the browser is fully closed (browsers do not allow a
+  website to override that).
+* [✓] Email notifications for the same booking-lifecycle events (subject to what the
+  admin has enabled per event under Notification Settings).
+
+## 8. Support
+
+* [✓] **Support ticket system** — create a ticket (optionally tied to a specific
+  booking), reply to add follow-up messages, and close a ticket once resolved.
+* [✓] Ticket status: Open, In Progress, Closed.
+* [✓] Ticket list and detail thread view.
+* [ ] Live chat was not found — support is ticket/thread-based, not a real-time chat
+  widget.
+
+## 9. Settings
+
+* [✓] Language switcher (persists per account).
+* [✓] Currency switcher (persists per account).
+* [✓] Light/dark theme (persists per account, independent of the public site's theme).
+* [✓] Push-notification enable/disable (see above).
+* [✓] **Security** — separate from general Settings:
+  - Change password.
+  - **Active session list**, each showing device/browser, with the ability to revoke a
+    single session or "sign out of all other sessions."
+  - **Login history** — a log of previous logins.
+
+## 10. Mobile/Responsive Features
+
+* [✓] The entire customer panel is built mobile-first with Tailwind's responsive
+  utilities: a collapsible sidebar/off-canvas menu, and a sticky bottom navigation bar
+  on phone/tablet widths mirroring the desktop sidebar's primary links.
+* [✓] The booking widget itself has a dedicated compact mobile layout (stacked, no
+  overlapping elements) distinct from its desktop treatment.
+* [ ] No native mobile app (iOS/Android) exists — this is a responsive web application
+  only. No React Native/Flutter/Capacitor tooling is present in the project.
+
+## 11. Complete Customer Feature Checklist
+
+[✓] Real dashboard with live stats and next-ride summary
+[✓] Profile management (name/email/phone/photo/preferences)
+[✓] Saved, labeled addresses with default selection
+[✓] Full booking history with upcoming/completed/cancelled filters
+[✓] Booking cancellation with reason capture
+[✓] Live driver distance/ETA polling (text-based)
+[✓] Stripe & PayPal online payment
+[✓] Shareable, no-login payment & invoice links
+[~] "Payment Methods" page (actually a transaction history list, not saved cards)
+[✓] Wallet balance, admin credit/debit, and automatic refund-to-wallet
+[!] Wallet self-recharge not yet connected to a real payment charge
+[✓] Loyalty points balance & ledger (admin-managed, not auto-earned/auto-redeemed)
+[✓] PDF invoice generation & download
+[✓] In-app notification center (read/unread/delete)
+[✓] Real browser push notifications, per-event configurable by admin
+[✓] Custom notification sound
+[✓] Support ticket system with threaded replies
+[✓] Language, currency, and theme preferences
+[✓] Active session management & login history
+[✓] Fully responsive layout with mobile bottom navigation
+[ ] Saved payment cards / stored payment methods
+[ ] Wallet-as-payment-method at checkout
+[ ] Automatic loyalty point earning or redemption
+[ ] Live chat support
+[ ] Native mobile app

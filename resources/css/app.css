@@ -1,0 +1,352 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Luxury black + gold palette (Uber Black / Blacklane / Emirates chauffeur inspired) */
+    --color-luxury-black: #0a0a0a;
+    --color-luxury-charcoal: #141416;
+    --color-luxury-graphite: #1c1c1f;
+    --color-luxury-slate: #26262a;
+    --color-luxury-border: #2e2e33;
+    --color-luxury-muted: #8a8a92;
+    --color-luxury-gold: #c9a24b;
+    --color-luxury-gold-light: #e6c877;
+    --color-luxury-gold-dark: #a9832f;
+    --color-luxury-secondary: #9ca3af;
+    --color-luxury-white: #f5f5f4;
+}
+
+/*
+ * Light-mode chrome. The 5 admin-controlled brand colors (primary, secondary,
+ * accent, text, background) are overridden per-request via an inline <style>
+ * block in the layout head, driven by the Settings model. These are the
+ * structural surface tokens that aren't directly admin-editable.
+ */
+:root[data-theme='light'] {
+    --color-luxury-charcoal: #ffffff;
+    --color-luxury-graphite: #f7f7f6;
+    --color-luxury-slate: #ececea;
+    --color-luxury-border: #e3e3e1;
+    --color-luxury-muted: #6b6b6f;
+
+    /*
+     * `text-luxury-white` is the default body/heading text color used
+     * throughout the admin panel — it has to flip to a dark ink here or it
+     * stays near-white (illegible) against the now-light backgrounds above.
+     * `--color-luxury-black` is deliberately NOT overridden: it's also used
+     * as `text-luxury-black` on gold buttons/badges (bg-luxury-gold), which
+     * must keep dark text in both themes.
+     */
+    --color-luxury-white: #141416;
+}
+
+/*
+ * Always-dark island: for photo/overlay UI on the public site (the hero,
+ * the booking widget's card, the search modal, the vehicle photo lightbox)
+ * that stays visually dark regardless of the site's light/dark theme — the
+ * same way a photo hero or a photo viewer stays dark on plenty of
+ * light-themed sites. Re-pins the shared surface/text tokens to their dark
+ * values within this subtree so the existing `text-luxury-white`,
+ * `bg-luxury-graphite`, etc. classes already used inside these components
+ * keep resolving correctly without editing their internals — only
+ * `--color-luxury-black` and `--color-luxury-gold*` are skipped here since
+ * those are never re-themed in the first place.
+ */
+.theme-dark-scope {
+    --color-luxury-charcoal: #141416;
+    --color-luxury-graphite: #1c1c1f;
+    --color-luxury-slate: #26262a;
+    --color-luxury-border: #2e2e33;
+    --color-luxury-muted: #8a8a92;
+    --color-luxury-white: #f5f5f4;
+}
+
+@layer base {
+    /* Safety net against horizontal scroll on mobile — a single element
+       overflowing anywhere on the page (long text, an off-canvas sidebar,
+       a wide table) would otherwise widen the whole document instead of
+       just that element.
+       `clip` rather than `hidden`: both block the horizontal overflow, but
+       `hidden` makes html/body an overflow (scroll) container, which is a
+       well-known browser quirk that silently breaks `position: sticky` for
+       every descendant on the page (e.g. the blog post Table of Contents).
+       `clip` blocks the overflow without creating that scroll container. */
+    html,
+    body {
+        overflow-x: clip;
+    }
+
+    /* Smoothly scroll to in-page anchors (e.g. "Book Now" buttons linking
+       to #booking-widget) instead of jumping instantly. */
+    @media (prefers-reduced-motion: no-preference) {
+        html {
+            scroll-behavior: smooth;
+        }
+    }
+
+    /* Alpine hides [x-cloak] elements once it hydrates, but without this
+       rule they render fully visible for a moment on page load (mobile
+       nav overlay, dropdowns) before Alpine's script (loaded from a CDN
+       with `defer`) finishes initializing. */
+    [x-cloak] {
+        display: none !important;
+    }
+
+    ::selection {
+        background-color: var(--color-luxury-gold);
+        color: var(--color-luxury-black);
+    }
+
+    /*
+     * Browsers don't give <button> a pointer/hand cursor by default (unlike
+     * <a href>), so anywhere the admin/customer panels use a plain <button>
+     * — table row actions, modal triggers, image-upload dropzones, custom
+     * dropdowns — the cursor stays the plain arrow even though the control
+     * is fully clickable. Applied app-wide (not just admin) since every
+     * panel shares this same interactive-chrome pattern.
+     */
+    button:not(:disabled),
+    [type='button']:not(:disabled),
+    [type='submit']:not(:disabled),
+    [type='reset']:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    [\@click]:not(:disabled),
+    [x-on\:click]:not(:disabled),
+    select,
+    summary {
+        cursor: pointer;
+    }
+
+    /* Labels that wrap/target a file, checkbox, radio, or range input (image
+       upload dropzones, toggle switches) are click targets too. */
+    label:has(input[type='file']),
+    label:has(input[type='checkbox']),
+    label:has(input[type='radio']),
+    label:has(input[type='range']) {
+        cursor: pointer;
+    }
+}
+
+@layer utilities {
+    .scrollbar-luxury::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    .scrollbar-luxury::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .scrollbar-luxury::-webkit-scrollbar-thumb {
+        background-color: var(--color-luxury-slate);
+        border-radius: 9999px;
+    }
+
+    /* Consistent tap/press feedback for buttons, cards, and links — a
+       short, direct response to user interaction rather than ambient
+       motion, so it stays active even under prefers-reduced-motion. */
+    .tap-scale {
+        transition: transform 0.15s ease-out;
+    }
+    .tap-scale:active {
+        transform: scale(0.97);
+    }
+
+    /* Bottom-nav padding that respects iOS home-indicator / gesture-bar
+       safe areas, so tab labels never sit under it. */
+    .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+}
+
+/*
+ * Luxury entrance/ambient motion — hero content fade-up, slow Ken Burns
+ * zoom on background media. Disabled entirely for users who've asked for
+ * reduced motion.
+ */
+@media (prefers-reduced-motion: no-preference) {
+    @keyframes fade-up-in {
+        from {
+            opacity: 0;
+            transform: translateY(1.25rem);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes ken-burns {
+        from {
+            transform: scale(1);
+        }
+        to {
+            transform: scale(1.12);
+        }
+    }
+
+    .animate-fade-up {
+        opacity: 0;
+        animation: fade-up-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .animate-fade-up.delay-1 {
+        animation-delay: 0.12s;
+    }
+    .animate-fade-up.delay-2 {
+        animation-delay: 0.24s;
+    }
+    .animate-fade-up.delay-3 {
+        animation-delay: 0.36s;
+    }
+    .animate-fade-up.delay-4 {
+        animation-delay: 0.48s;
+    }
+
+    .animate-ken-burns {
+        animation: ken-burns 20s ease-out forwards;
+    }
+
+    /*
+     * Quick, snappy entrance for dashboard main-content on every navigation
+     * (unlike .animate-fade-up's slower 0.9s, tuned for marketing-page
+     * heroes that appear once) — this repeats on every page load in a
+     * traditional MPA, so it needs to stay out of the way fast.
+     */
+    .dashboard-page-enter {
+        opacity: 0;
+        animation: fade-up-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /*
+     * Scroll-triggered reveal (toggled via Alpine's x-intersect adding
+     * `.is-visible`) for below-the-fold grids — unlike .animate-fade-up,
+     * this fades in as it enters the viewport rather than on page load.
+     *
+     * `.reveal-up` itself is the resting/visible state (progressive
+     * enhancement baseline) — content must never depend on JavaScript to
+     * become visible at all. `.reveal-armed` is the "not yet revealed" pre-
+     * animation state, and it is ONLY ever added by Alpine (see the
+     * `x-init="armed = true"` pattern in items/stats/areas sections), never
+     * present in the server-rendered HTML. If Alpine fails to load — CDN
+     * blocked, JS disabled, any failure — `armed` never becomes true, the
+     * class is never applied, and the element simply sits at this default,
+     * fully visible. If Alpine loads normally, it's briefly armed (hidden)
+     * until `x-intersect` adds `.is-visible`, producing the same fade-in
+     * effect as before.
+     */
+    .reveal-up {
+        opacity: 1;
+        transform: translateY(0);
+        transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .reveal-up.reveal-armed:not(.is-visible) {
+        opacity: 0;
+        transform: translateY(1.5rem);
+    }
+
+    .reveal-up.delay-1 { transition-delay: 0.08s; }
+    .reveal-up.delay-2 { transition-delay: 0.16s; }
+    .reveal-up.delay-3 { transition-delay: 0.24s; }
+    .reveal-up.delay-4 { transition-delay: 0.32s; }
+    .reveal-up.delay-5 { transition-delay: 0.4s; }
+    .reveal-up.delay-6 { transition-delay: 0.48s; }
+
+    @keyframes skeleton-shimmer {
+        from { background-position: 150% 0; }
+        to { background-position: -50% 0; }
+    }
+
+    .skeleton-shimmer {
+        background-image: linear-gradient(
+            100deg,
+            var(--color-luxury-graphite) 40%,
+            var(--color-luxury-slate) 50%,
+            var(--color-luxury-graphite) 60%
+        );
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.6s ease-in-out infinite;
+    }
+}
+
+/* Reduced-motion fallback: a static placeholder tone, no shimmer sweep. */
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-shimmer {
+        background: var(--color-luxury-graphite);
+    }
+}
+
+/* Slim top-of-viewport loading bar for page navigation — functional
+   feedback rather than ambient motion, so it isn't gated behind
+   prefers-reduced-motion. */
+#page-progress-bar {
+    position: fixed;
+    inset-inline: 0;
+    top: 0;
+    height: 3px;
+    z-index: 80;
+    background: var(--color-luxury-gold);
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--color-luxury-gold) 70%, transparent);
+    width: 0%;
+    opacity: 0;
+    transition: width 0.4s ease-out, opacity 0.2s ease-out;
+    pointer-events: none;
+}
+#page-progress-bar.is-active {
+    opacity: 1;
+}
+
+/*
+ * Google Places Autocomplete suggestion dropdown (pickup/dropoff/stop
+ * fields). Google appends `.pac-container` directly to <body> — outside any
+ * component's DOM — so this has to be global, unscoped CSS rather than a
+ * component-local style block. `!important` guards against Google's own
+ * injected <style> tag (loaded after ours) winning identical-specificity
+ * ties. The "Powered by Google" attribution row is left untouched — Google's
+ * terms require it to stay visible and unaltered.
+ */
+.pac-container {
+    background-color: var(--color-luxury-charcoal) !important;
+    border: 1px solid var(--color-luxury-border) !important;
+    border-radius: 1rem !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important;
+    margin-top: 0.5rem;
+    padding: 0.375rem;
+    font-family: var(--font-sans) !important;
+}
+
+.pac-item {
+    border: none !important;
+    border-top: none !important;
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    color: var(--color-luxury-white) !important;
+    cursor: pointer;
+}
+
+.pac-item:hover,
+.pac-item-selected {
+    background-color: var(--color-luxury-graphite) !important;
+}
+
+.pac-item-query {
+    color: var(--color-luxury-white) !important;
+    font-size: 0.8125rem;
+}
+
+.pac-matched {
+    color: var(--color-luxury-gold) !important;
+    font-weight: 600;
+}
+
+.pac-icon {
+    display: none;
+}

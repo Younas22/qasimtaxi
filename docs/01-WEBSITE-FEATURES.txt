@@ -1,0 +1,267 @@
+========================================
+PUBLIC WEBSITE
+LimoSchedule — Automated Limo Booking System
+========================================
+
+Audit basis: Laravel 12 routes (routes/web.php), PageController, BookingRequestController,
+BookingPaymentController, AreaController, BlogController, SitemapController, the Page/
+PageSection/Area/BlogPost/PopularRoute/Promotion/Review models, and their corresponding
+Blade views. Every feature below was traced from a real route through to working
+controller/service logic — nothing here is inferred from "what a taxi site usually has."
+
+
+## 1. Website Overview
+
+The public website is a server-rendered, fully responsive marketing and booking site.
+Its job is threefold: present the company's services and fleet, let a visitor request or
+book a ride without needing an account, and give existing customers the login door into
+their own panel. The entire site's content — pages, services, pricing display, images,
+SEO metadata, blog, service areas, popular routes, promotions, testimonials/reviews — is
+editable from the Admin Panel; nothing on the public site is hardcoded copy.
+
+## 2. Homepage
+
+The homepage is built from an ordered list of admin-managed content sections
+(see "Page & Section Builder" below). Sections actually implemented and available to
+place on any page, including the homepage:
+
+* [✓] **Hero** — full-screen cinematic banner (image or video background) with
+  eyebrow, heading, subheading, a short "differentiator" claim, up to two buttons, and
+  the live booking widget overlapping its lower half.
+* [✓] **Booking / Search Widget** — the same booking form embedded directly in the hero.
+* [✓] **Rich Text** — a free-form WYSIWYG content block.
+* [✓] **Items** — a generic icon + title + description grid (used for "why choose us" /
+  feature lists).
+* [✓] **Trust Badges** — a compact row of trust indicators/certifications.
+* [✓] **Stats** — animated counters (e.g. "10,000+ Rides Completed").
+* [✓] **Process** — a numbered step-by-step "how it works" block.
+* [✓] **Fleet** — a searchable/filterable showcase of active vehicles pulled live from
+  Fleet Management.
+* [✓] **Popular Routes** — a list of fixed pickup→dropoff routes with estimated (and
+  optional strikethrough "original") pricing, grouped by Route Type (e.g. City Routes,
+  Intercity Routes).
+* [✓] **Areas** — service-area cards linking to dedicated, SEO-managed area pages.
+* [✓] **Testimonials** — a customer review slider.
+* [✓] **Team** — staff/driver profile grid.
+* [✓] **FAQ** — a searchable, filterable accordion with category tabs.
+* [✓] **Vision & Mission** — a two-column statement block.
+* [✓] **Promotions** — a scheduled promo banner/carousel (start/end date, badge text,
+  link, sort order).
+* [✓] **Blog** — a preview grid of recent posts.
+* [✓] **Contact Info** — address/phone/email/hours plus a working contact form.
+* [✓] **CTA (Call To Action)** — a large closing banner; with an image configured it
+  renders as a premium boxed card (photo, benefits row, call/WhatsApp/rating trust bar);
+  without one it renders as a simple centered card.
+
+Every section type can be added, reordered (drag-and-drop sort order), toggled active/
+inactive, or removed per page from the Admin Panel — see 04-ADMIN-PANEL-FEATURES.txt,
+"CMS / Page & Section Builder."
+
+## 3. Online Booking
+
+**[✓] Guest booking is fully implemented** — no account or login is required to submit
+a booking (`booking.store` and `booking.quote` are unauthenticated routes; the customer
+account is resolved/created transparently for a guest by email/phone).
+
+The booking widget (`components/booking-search-box.blade.php`) supports:
+
+* **Trip type** — One Way, Round Trip, Hourly, or Airport Transfer, each changing which
+  fields the form shows.
+* **Pickup location** — Google Places Autocomplete text field, storing resolved
+  lat/lng/place_id, not just free text.
+* **Drop-off location** — same Autocomplete behavior.
+* **Multiple stops** — add/remove unlimited intermediate stops on the route, each with
+  its own Autocomplete field; the total distance sums every leg (see fare section).
+* **Date & time picker** for pickup (and a return date/time for round trips).
+* **Return trip fields** — a fully separate return pickup/drop-off/stops set for round
+  trips.
+* **Vehicle/category selection** — choose a vehicle category; fares update accordingly.
+* **Passenger count** and **luggage count** (+/- steppers).
+* **Waiting time / extra stop / toll flags** feed into the live fare estimate.
+* **Live fare quote** (`booking.quote`, throttled 30/min) — recalculates the estimated
+  fare via AJAX as the visitor edits the form, before they submit.
+* **Coupon code field** — validated live via `coupon.apply`; active, unexpired,
+  usage-remaining coupons matching the minimum fare are applied to the quote.
+* **Guest contact fields** — full name, email (optional), phone with a country/dial-code
+  selector.
+* **[~] Voice search** — a microphone icon is shown next to the pickup field when the
+  admin enables "Voice Search" in Booking Settings, but clicking it currently shows a
+  "Voice search is coming soon" message. **No actual speech-to-text is implemented** —
+  this is a placeholder, not a working feature.
+* **WhatsApp hand-off** — on submit, if a WhatsApp number is configured, the visitor's
+  browser is also prompted to open a pre-filled WhatsApp message summarizing the booking
+  request (in addition to, not instead of, the real booking being created).
+* **Booking confirmation page** — a dedicated, shareable confirmation screen
+  (`booking.confirmation`) reachable by booking number, no login required.
+* **Invoice view & PDF download** — a guest-accessible invoice page and a genuine PDF
+  download (server-rendered via Dompdf), both reachable by booking number alone.
+
+## 4. Services
+
+Six dedicated service pages exist, each a fully admin-editable page (own hero image,
+heading, copy, SEO fields) under Page & Section management:
+
+* [✓] Airport Transfer
+* [✓] Chauffeur Service (displayed as "Local Taxi")
+* [✓] Corporate Transfer
+* [✓] City Rides
+* [✓] Hourly Rides
+* [✓] VIP Transport
+
+These map directly to `Booking::TYPES`, which additionally include **One Way**,
+**Round Trip**, and **Corporate** as bookable trip types (some service pages and booking
+types are named differently but describe the same underlying trip type).
+
+## 5. Vehicle/Fleet Display
+
+* [✓] Public fleet grid, filterable/searchable by category and capacity.
+* [✓] Per-vehicle details: brand, model, year, seats, luggage capacity, transmission,
+  fuel type, description, and a photo.
+* [✓] Amenity badges: Wi-Fi, bottled water, phone charger, baby seat, air conditioning
+  — each a real per-vehicle toggle, not decorative.
+* [✓] Vehicle categories (e.g. Sedan, SUV, Van) with their own listing and description.
+* [✓] Multiple gallery images per vehicle (separate `VehicleImage` records), beyond the
+  single primary photo.
+* [✓] Per-vehicle pricing display (see below).
+
+## 6. Pricing/Fare Calculator
+
+**[✓] Fully implemented, distance- and time-based fare engine** (`BookingFareCalculator`
+service, backed by admin-configurable `PricingRule` records — one global default rule
+plus an optional override rule per vehicle category). Confirmed pricing factors:
+
+* **Base fare** — a flat starting charge.
+* **Distance-based rate** — a per-km rate, calculated from real driving distance (see
+  Google Maps integration below), summed correctly across multiple stops.
+* **Long-distance discount tier** — once total distance passes an admin-set threshold,
+  a lower per-km rate applies to the distance beyond it.
+* **Hourly rate** — for Hourly-type bookings, priced per hour instead of per km, with an
+  "included hours" allowance.
+* **Waiting charges** — a per-minute rate, with a configurable number of free waiting
+  minutes before it kicks in.
+* **Night surcharge** — an extra flat charge applied when pickup falls inside an
+  admin-configured night time window.
+* **Weekend surcharge** — an extra flat charge applied on admin-selected days of the
+  week.
+* **Toll charge** — an optional flat add-on when the customer flags a toll route.
+* **Airport surcharge** — an extra flat charge for airport-transfer bookings.
+* **Service fee** — a flat platform fee added to every fare.
+* **Minimum fare floor** — the final fare never drops below this, regardless of a short
+  trip's calculated total.
+* **Included passengers / extra passenger charge** — a per-head surcharge once the
+  party size exceeds the plan's included passenger count.
+* **Coupon discounts** — percentage or fixed-amount, with a minimum-fare eligibility
+  rule, a maximum discount cap, a usage limit, and an expiry date.
+* **Currency-aware display** — the quoted fare is shown in whichever currency the
+  visitor has selected (see Multi-Currency below); the fare is still computed and stored
+  in the site's base currency.
+* **Tax** — a single site-wide tax label and rate (Settings) can be applied to displayed
+  totals/invoices.
+
+This is a genuine calculation engine, not a static price list — every one of the factors
+above is a real, configurable database column read by `BookingFareCalculator`.
+
+## 7. Authentication
+
+* [✓] **Customer registration** — public sign-up form, creates a `Customer` account.
+* [✓] **Customer/Admin login** — a single shared login page (`/login`) that resolves
+  which guard (admin or customer) a submitted email belongs to; **Drivers have a
+  separate, dedicated login page** (`/driver/login`) — they are not reachable from the
+  shared form.
+* [✓] **Logout** for all three roles.
+* [✓] **Password reset ("Forgot Password")** — implemented independently for Admin,
+  Customer, and Driver (each has its own `ForgotPasswordController`/reset-notification
+  pair), via emailed reset links.
+* [✓] **Email verification** — Customer accounts implement Laravel's `MustVerifyEmail`
+  (a verification email is sent, and there's a verify-email endpoint), but **verification
+  is not currently enforced** — the `verified` middleware is not applied to any customer
+  route, so an unverified account is not blocked from using the panel.
+* [ ] **Social login** (Google/Facebook/etc.) — not found anywhere in the codebase.
+* [ ] **OTP / SMS-based login** — not found; see 05-TECHNICAL-DETAILS.txt for the SMS
+  finding.
+* [✓] **Session security (customer side)** — active sessions and login history are
+  tracked per customer (`CustomerActiveSession`, `CustomerLoginHistory`) and visible to
+  the customer under Account → Security.
+
+## 8. Contact & Communication
+
+* [✓] **Contact form** — a real submission endpoint (`contact.store`) that stores the
+  message (`ContactMessage`) for admin follow-up.
+* [✓] **Phone / Email / Address** — sourced live from Settings everywhere they appear
+  (header, footer, contact page).
+* [✓] **WhatsApp** — a `wa.me` deep-link with a pre-filled message template (admin-
+  configurable number and template text). This is a click-to-chat link, **not** a
+  WhatsApp Business API integration (no delivery receipts, no automated replies, no
+  message history inside the admin panel).
+* [✓] **Floating WhatsApp button** — a persistent sticky button site-wide (only rendered
+  when a WhatsApp number is configured).
+* [✓] **Browser push notifications** — visitors who create an account (any of the three
+  roles) can opt in to real browser push notifications for their own booking updates.
+  See 02/03/04 panel documents and 05-TECHNICAL-DETAILS.txt for the full architecture.
+
+## 9. Other Public Website Features
+
+* [✓] **Blog** — full public blog with categories and tags, post detail pages, view-count
+  tracking, and per-post SEO fields.
+* [✓] **Quote Requests** — a separate, lighter-weight "request a quote" path distinct
+  from the full booking form (`QuoteRequest` model), for enquiries that aren't ready to
+  become a firm booking yet.
+* [✓] **Reviews / Testimonials** — customers can leave a rating + comment tied to a
+  completed booking, driver, and vehicle; reviews go through an admin
+  pending → approved/rejected moderation queue, with an optional "featured" flag for
+  homepage display.
+* [✓] **Popular Routes** — fixed-route pricing listings grouped into admin-defined
+  Route Types (e.g. "City Routes", "Intercity Routes"), each optionally showing a
+  struck-through original price alongside a discounted one.
+* [✓] **Service Area pages** — dedicated, SEO-managed pages per coverage area.
+* [✓] **Multi-language** — full UI translation via an admin-managed language table
+  (name, native name, code, flag, text direction) and a database-backed translation
+  store; visitors switch language from the header, RTL languages are supported via the
+  `direction` field.
+* [✓] **Multi-currency** — an admin-managed currency table (name, code, symbol, manually
+  set exchange rate) with a visitor-facing switcher; **exchange rates are manually
+  entered by the admin, not fetched live from a currency-rate API.**
+* [✓] **Light/Dark theme toggle**, site-wide, admin sets the default.
+* [✓] **SEO** — dynamic XML sitemap (`sitemap.xml`) and `robots.txt`, per-page
+  meta title/description/keywords, canonical URL override, robots index/follow toggles,
+  Open Graph image, custom JSON-LD schema field per page/post, and an admin-managed
+  301/302 **redirect manager** with a 404 fallback that checks it before giving up.
+* [✓] **Cookie/Privacy/Terms/Refund-policy pages** — standard legal pages, editable like
+  any other page.
+
+
+## COMPLETE WEBSITE FEATURE CHECKLIST
+
+[✓] Dynamic, section-based homepage builder
+[✓] Full-screen hero with image/video background
+[✓] Live booking widget (guest checkout, no login required)
+[✓] Multi-stop routing with Google Places Autocomplete
+[✓] Round-trip / one-way / hourly / airport / corporate trip types
+[✓] Live AJAX fare quoting before submission
+[✓] Coupon code application at booking time
+[~] Voice search (UI present, functionality is a "coming soon" placeholder)
+[✓] WhatsApp click-to-chat hand-off on booking submit
+[✓] Shareable booking confirmation & invoice pages (no login required)
+[✓] PDF invoice download
+[✓] 6 dedicated service pages, each independently editable
+[✓] Public fleet listing with amenities, categories, and gallery images
+[✓] Full distance/time-based fare calculation engine with surcharges & discounts
+[✓] Customer registration, login, logout
+[✓] Shared admin/customer login, separate driver login
+[✓] Per-role password reset via email
+[~] Customer email verification (sent, not enforced)
+[ ] Social login
+[ ] OTP/SMS login
+[✓] Customer active-session & login-history tracking
+[✓] Working contact form
+[✓] WhatsApp deep link + floating button
+[✓] Browser push notification opt-in
+[✓] Blog with categories, tags, and view counts
+[✓] Separate "Quote Request" enquiry path
+[✓] Moderated customer reviews with featured flag
+[✓] Popular Routes with route types and discount pricing
+[✓] Service area pages
+[✓] Multi-language (DB-backed, RTL-capable)
+[✓] Multi-currency (manual exchange rates)
+[✓] Light/dark theme
+[✓] XML sitemap, robots.txt, per-page SEO fields, custom schema, redirect manager

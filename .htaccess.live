@@ -1,0 +1,18 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Serve real static files straight from public/ (built Vite assets,
+    # uploads, favicon, robots.txt, etc.) without going through PHP. Unlike
+    # the local .htaccess, there's no "/limoschedule_software/" subfolder
+    # prefix to strip here — live serves from the domain root, so
+    # REQUEST_URI is already the path relative to the docroot.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{DOCUMENT_ROOT}/public%{REQUEST_URI} -f
+    RewriteRule ^(.*)$ public/$1 [L]
+
+    # Everything else goes through the front controller at the project
+    # root (index.php, next to this file).
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>
