@@ -27,7 +27,7 @@ class ForgotPasswordController extends Controller
         } catch (TransportExceptionInterface $e) {
             report($e);
 
-            // Drop the stored token so the throttle doesn't block an immediate retry.
+            // Dropp the stored token so the throttle doesn't block an immediate retry.
             if ($user = $broker->getUser($request->only('email'))) {
                 $broker->deleteToken($user);
             }
